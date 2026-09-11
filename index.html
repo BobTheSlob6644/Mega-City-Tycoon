@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Mega City Tycoon 3D</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#111;font-family:system-ui;color:white;touch-action:none}
+canvas{display:block;width:100%;height:100%}
+#ui{position:fixed;inset:0;pointer-events:none}
+.panel{position:absolute;background:rgba(10,15,25,.82);backdrop-filter:blur(8px);border:1px solid #ffffff22;border-radius:14px;padding:10px 12px;box-shadow:0 8px 30px #0005}
+#money{top:12px;left:12px;font-weight:800;font-size:18px}
+#stats{top:58px;left:12px;font-size:13px;color:#cbd5e1}
+#build{left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:7px;pointer-events:auto}
+button{border:0;border-radius:11px;padding:10px 11px;background:#263449;color:white;font-weight:700}
+button:active{transform:scale(.95)}
+#hint{bottom:86px;left:50%;transform:translateX(-50%);font-size:12px;color:#cbd5e1;text-align:center;white-space:nowrap}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <div id="money" class="panel">$500</div>
+  <div id="stats" class="panel">Income: $0/s<br>City Level: 1</div>
+  <div id="hint" class="panel">Tap a plot to build • Drag to rotate • Pinch to zoom</div>
+  <div id="build" class="panel">
+    <button data-type="shop">🏪 Shop $100</button>
+    <button data-type="cafe">☕ Cafe $150</button>
+    <button data-type="office">🏢 Office $300</button>
+  </div>
+</div>
+<script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+let W,H,dpr=1, money=500, income=0, level=1, buildings=[];
+const N=7;
+let yaw=-.7, pitch=.78, zoom=48, selected='shop';
+const types={
+ shop:{cost:100,inc:4,h:.9,w:1.0,col:'#ef4444'},
+ cafe:{cost:150,inc:7,h:1.15,w:1.0,col:'#f59e0b'},
+ office:{cost:300,inc:14,h:1.9,w:1.15,col:'#38bdf8'}
+};
+const key='megaCityTycoonSave';
+function save(){localStorage.setItem(key,JSON.stringify({money,income,level,buildings}));}
+try{Object.assign(window,JSON.parse(localStorage.getItem(key)||'{}'));}catch(e){}
+function resize(){dpr=devicePixelRatio||1;W=innerWidth;H=innerHeight;canvas.width=W*dpr;canvas.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+
+function iso(x,y,z=0){
+ let cy=Math.cos(yaw),sy=Math.sin(yaw), cp=Math.cos(pitch),sp=Math.sin(pitch);
+ let X=x*cy-y*sy, Y=x*sy+y*cy;
+ let Z=Y*sp+z*cp, screenY=H*.43-Z*zoom;
+ return [W/2+X*zoom,screenY];
+}
+function poly(points,fill,stroke='#0002'){
+ ctx.beginPath();points.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=stroke;ctx.stroke();
+}
+function drawBox(x,y,w,d,h,col){
+ const a=iso(x-w/2,y-d/2),b=iso(x+w/2,y-d/2),c=iso(x+w/2,y+d/2),e=iso(x-w/2,y+d/2);
+ const ah=iso(x-w/2,y-d/2,h),bh=iso(x+w/2,y-d/2,h),ch=iso(x+w/2,y+d/2,h),eh=iso(x-w/2,y+d/2,h);
+ poly([a,b,c,e],'#334155'); poly([a,b,bh,ah],col); poly([b,c,ch,bh],shade(col,.72)); poly([e,c,ch,eh],shade(col,.55)); poly([ah,bh,ch,eh],shade(col,1.15));
+}
+function shade(hex,f){let n=parseInt(hex.slice(1),16),r=Math.min(255,Math.max(0,((n>>16)&255)*f)),g=Math.min(255,Math.max(0,((n>>8)&255)*f)),b=Math.min(255,Math.max(0,(n&255)*f));return `rgb(${r},${g},${b})`}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ let grad=ctx.createLinearGradient(0,0,0,H);grad.addColorStop(0,'#8ed0ff');grad.addColorStop(.6,'#d9f2ff');grad.addColorStop(.6,'#74b66a');grad.addColorStop(1,'#315c39');ctx.fillStyle=grad;ctx.fillRect(0,0,W,H);
+ // ground grid
+ for(let x=-N/2;x<=N/2;x++)for(let y=-N/2;y<=N/2;y++){
+   let p=[iso(x,y),iso(x+1,y),iso(x+1,y+1),iso(x,y+1)];
+   poly(p,(x+y)%2?'#70aa63':'#79b56b','#ffffff18');
+ }
+ // roads
+ for(let i=-3;i<=3;i++){poly([iso(i-.12,-3.5),iso(i+.12,-3.5),iso(i+.12,3.5),iso(i-.12,3.5)],'#4b5563');}
+ for(let i=-3;i<=3;i++){poly([iso(-3.5,i-.12),iso(3.5,i-.12),iso(3.5,i+.12),iso(-3.5,i+.12)],'#4b5563');}
+ buildings.slice().sort((a,b)=>a.x+a.y-(b.x+b.y)).forEach(b=>drawBox(b.x+.5,b.y+.5,.78,.78,types[b.type].h,types[b.type].col));
+ requestAnimationFrame(draw);
+}
+function updateUI(){document.getElementById('money').textContent='$'+Math.floor(money);document.getElementById('stats').innerHTML=`Income: $${income}/s<br>City Level: ${level}`;}
+document.querySelectorAll('button').forEach(b=>b.onclick=()=>selected=b.dataset.type);
+let down=null,lastDist=null;
+canvas.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)});
+canvas.addEventListener('pointermove',e=>{
+ if(!down)return;
+ let dx=e.clientX-down.x,dy=e.clientY-down.y;
+ if(Math.hypot(dx,dy)>4){yaw+=dx*.006;pitch=Math.max(.45,Math.min(1.05,pitch+dy*.003));down={x:e.clientX,y:e.clientY}}
+});
+canvas.addEventListener('pointerup',e=>{
+ if(!down)return; let moved=Math.hypot(e.clientX-down.x,e.clientY-down.y);down=null;
+ if(moved<12) place(e.clientX,e.clientY);
+});
+function place(sx,sy){
+ // approximate inverse projection for a tap; choose nearest grid cell
+ let best=null,bd=999;
+ for(let x=0;x<N;x++)for(let y=0;y<N;y++){let p=iso(x+.5,y+.5);let d=Math.hypot(p[0]-sx,p[1]-sy);if(d<bd){bd=d;best={x,y}}}
+ if(!best||bd>55)return;
+ if(buildings.some(b=>b.x===best.x&&b.y===best.y)){return}
+ let t=types[selected];if(money<t.cost)return;
+ money-=t.cost;income+=t.inc;buildings.push({...best,type:selected});
+ level=1+Math.floor(buildings.length/5);save();updateUI();
+}
+setInterval(()=>{money+=income;updateUI();save()},1000);
+updateUI();draw();
+</script>
+</body>
+</html>
